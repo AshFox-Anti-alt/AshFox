@@ -300,7 +300,7 @@ details p { color:light-dark(#67798F,#9DADC0); line-height:1.7; font-size:.81rem
 @media(max-width:390px){.theme-grid{grid-template-columns:1fr 1fr;gap:9px}.theme-card{padding:9px}.theme-meta{display:block}.theme-meta small{display:block;margin-top:4px}}
 
 
-/* AshFox full-bleed layout refinements */
+/* AshFox full-width layout and responsive refinements */
 html, body { width:100%; min-width:0; }
 body { overflow-x:hidden; }
 .container { width:calc(100% - 48px); max-width:none; margin-left:auto; margin-right:auto; }
@@ -639,13 +639,67 @@ function sha256Fallback(input){
  const vals=[a,b,c,d,e,f,g,h];for(let i=0;i<8;i++)H[i]=(H[i]+vals[i])>>>0;
  }return new Uint8Array(H.flatMap(v=>[(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255]));
 }
+// Supabase Edge Function connection for AshFox's four live network tools.
+// This function currently has Verify JWT enabled, so use the legacy public anon JWT key.
+// Never put a service-role key or Supabase secret key in this file.
+const ASHFOX_TOOLS_URL = 'https://njwtcdortuccedwxrlei.supabase.co/functions/v1/ashfox-tools';
+const SUPABASE_PUBLIC_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qd3RjZG9ydHVjY2Vkd3hybGVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzAxNTQsImV4cCI6MjEwNzk0NjE1NH0.yw4gSEFjkrFOoJLUFqLlauC16cjwOcT_2XcDfjYU9Z8';
+
 function wireNetworkTool(id) {
   const run = $('#runTool');
   if (!run) return;
-  run.addEventListener('click', () => {
-    out('LIVE LOOKUPS ARE NOT RUN IN THIS PREVIEW\n\nThe deployment bundle includes the Supabase Edge Function and database rate-limit migration for this utility. Deploy them and configure the provider secrets to activate real results on your hosted website. This preview intentionally makes no network request and never fabricates an answer.');
+  run.addEventListener('click', async () => {
+    const value = ({
+      'public-ip': $('#publicIpValue')?.value.trim() || '',
+      'dns': $('#domainValue')?.value.trim() || '',
+      'oui': $('#ouiValue')?.value.trim() || '',
+      'ssl': $('#sslHost')?.value.trim() || ''
+    })[id];
+
+    if (id !== 'public-ip' && !value) {
+      out('Please enter a value before running this lookup.');
+      return;
+    }
+    if (SUPABASE_PUBLIC_KEY === 'PASTE_YOUR_LEGACY_SUPABASE_ANON_KEY_HERE') {
+      out('Setup needed: add your Supabase legacy anon public key to SUPABASE_PUBLIC_KEY in index.html, then publish the updated website. Do not use a service-role or secret key.');
+      return;
+    }
+
+    const payload = { tool: id, value };
+    if (id === 'dns') payload.recordType = $('#dnsType')?.value || 'ALL';
+
+    run.disabled = true;
+    const originalLabel = run.textContent;
+    run.textContent = 'Looking up…';
+    out('Contacting AshFox secure lookup function…');
+    try {
+      const response = await fetch(ASHFOX_TOOLS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SUPABASE_PUBLIC_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_PUBLIC_KEY
+        },
+        body: JSON.stringify(payload)
+      });
+      const raw = await response.text();
+      let data;
+      try { data = JSON.parse(raw); } catch { data = { response: raw }; }
+      if (!response.ok) {
+        const detail = data.error || data.message || response.statusText || 'Request failed';
+        out('Lookup failed (HTTP ' + response.status + ')\n' + detail + '\n\n' + JSON.stringify(data, null, 2));
+        return;
+      }
+      out('SUCCESS · HTTP ' + response.status + '\n\n' + JSON.stringify(data, null, 2));
+    } catch (error) {
+      out('Could not contact the Supabase function. Check your internet connection and the function URL.\n' + (error?.message || String(error)));
+    } finally {
+      run.disabled = false;
+      run.textContent = originalLabel;
+    }
   });
 }
+
 
 function wireTool(id){const root=$('#toolUI');if(!root)return;if(['public-ip','dns','oui','ssl'].includes(id)){wireNetworkTool(id);return;}
 const run=$('#runTool');
