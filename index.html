@@ -645,6 +645,63 @@ function sha256Fallback(input){
 const ASHFOX_TOOLS_URL = 'https://njwtcdortuccedwxrlei.supabase.co/functions/v1/ashfox-tools';
 const SUPABASE_PUBLIC_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5qd3RjZG9ydHVjY2Vkd3hybGVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIzNzAxNTQsImV4cCI6MjEwNzk0NjE1NH0.yw4gSEFjkrFOoJLUFqLlauC16cjwOcT_2XcDfjYU9Z8';
 
+
+function formatNetworkResult(id, data) {
+  const lines = [];
+  const clean = (v) => (v === undefined || v === null || v === '' ? 'Not available' : String(v));
+  if (id === 'public-ip') {
+    const r = data.result || data;
+    const c = r.connection || {};
+    const t = r.timezone || {};
+    lines.push('PUBLIC IP & GEOLOCATION', '');
+    lines.push('IP address: ' + clean(r.ip));
+    lines.push('IP version: ' + clean(r.type));
+    lines.push('Location: ' + [r.city, r.region, r.country].filter(Boolean).join(', '));
+    lines.push('Postal code: ' + clean(r.postal));
+    lines.push('ISP: ' + clean(c.isp || c.org));
+    lines.push('Organization: ' + clean(c.org));
+    lines.push('ASN: ' + clean(c.asn));
+    lines.push('Network domain: ' + clean(c.domain));
+    lines.push('Timezone: ' + clean(t.id) + ' (' + clean(t.utc) + ')');
+    lines.push('Coordinates: ' + (r.latitude != null && r.longitude != null ? r.latitude + ', ' + r.longitude : 'Not available'));
+    lines.push('', 'Location is approximate and based on the IP network, not an exact device location.');
+    return lines.join('\n');
+  }
+  if (id === 'dns') {
+    lines.push('DNS LOOKUP', 'Domain: ' + clean(data.domain), '');
+    (data.results || []).forEach(group => {
+      lines.push(group.type + ' RECORDS');
+      const answers = group.Answer || [];
+      if (!answers.length) lines.push('No records returned');
+      answers.forEach(a => lines.push(a.data + (a.TTL != null ? '  ·  TTL ' + a.TTL + 's' : '')));
+      lines.push('');
+    });
+    return lines.join('\n');
+  }
+  if (id === 'oui') {
+    lines.push('MAC VENDOR LOOKUP', '', 'MAC prefix: ' + clean(data.prefix), 'Manufacturer: ' + clean(data.vendor));
+    return lines.join('\n');
+  }
+  if (id === 'ssl') {
+    const r = data.result || {};
+    lines.push('SSL / TLS CERTIFICATE CHECK', '', 'Hostname: ' + clean(data.hostname || r.host));
+    lines.push('Check status: ' + clean(r.status));
+    lines.push('Port: ' + clean(r.port));
+    (r.endpoints || []).forEach((e, i) => {
+      lines.push('', 'ENDPOINT ' + (i + 1));
+      lines.push('IP address: ' + clean(e.ipAddress));
+      lines.push('Certificate grade: ' + clean(e.grade));
+      lines.push('Status: ' + clean(e.statusMessage));
+      lines.push('Warnings: ' + (e.hasWarnings ? 'Yes' : 'None reported'));
+      const cert = e.details?.certChains?.[0]?.certIds;
+      if (cert?.length) lines.push('Certificate chain entries: ' + cert.length);
+    });
+    lines.push('', 'This is the provider’s observed scan result; certificate status can vary by endpoint and time.');
+    return lines.join('\n');
+  }
+  return 'Lookup completed successfully.';
+}
+
 function wireNetworkTool(id) {
   const run = $('#runTool');
   if (!run) return;
@@ -690,7 +747,7 @@ function wireNetworkTool(id) {
         out('Lookup failed (HTTP ' + response.status + ')\n' + detail + '\n\n' + JSON.stringify(data, null, 2));
         return;
       }
-      out('SUCCESS · HTTP ' + response.status + '\n\n' + JSON.stringify(data, null, 2));
+      out('Lookup complete · HTTP ' + response.status + '\n\n' + formatNetworkResult(id, data));
     } catch (error) {
       out('Could not contact the Supabase function. Check your internet connection and the function URL.\n' + (error?.message || String(error)));
     } finally {
